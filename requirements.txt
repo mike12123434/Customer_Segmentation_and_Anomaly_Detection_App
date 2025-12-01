@@ -16,3 +16,4 @@ scikit-learn
 
 # 其他常見工具 (可依需求刪減)
 requests
+google-genai
