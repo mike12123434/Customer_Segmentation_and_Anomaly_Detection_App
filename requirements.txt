@@ -7,4 +7,5 @@ plotly
 google-genai
 kmodes
 gower
+matplotlib
 
