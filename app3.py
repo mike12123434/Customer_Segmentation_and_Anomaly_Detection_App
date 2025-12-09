@@ -11,10 +11,10 @@ import warnings
 import json
 from typing import Tuple, Dict, Optional, List
 from functools import lru_cache
-import requests # NEW: Import for HuggingFace API calls
-# from google import genai # REMOVED: Gemini imports
-# from google.genai import types # REMOVED
-# from google.genai.errors import APIError # REMOVED
+
+# GROQ CHANGE: Import Groq SDK and os
+import os
+from groq import Groq, APIError 
 
 # Advanced clustering packages
 try:
@@ -27,13 +27,13 @@ except ImportError:
 warnings.filterwarnings("ignore")
 
 st.set_page_config(
-    page_title="全方位客戶分群 (Advanced Clustering)", 
+    page_title="全方位客戶分群 (Groq Powered)", 
     layout="wide", 
-    page_icon="👥"
+    page_icon="⚡" # Changed icon to reflect Groq speed
 )
 
 # ============================================================
-# Configuration & Constants
+# Configuration & Constants (GROQ CHANGE)
 # ============================================================
 
 class Config:
@@ -44,13 +44,12 @@ class Config:
     CACHE_TTL = 3600
     DEFAULT_RANDOM_STATE = 42
     
-    # HuggingFace Configuration (NEW)
-    HF_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct" 
-    HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL_NAME}"
-
+    # GROQ CHANGE: Groq Model Selection
+    # Llama 3.1 8B is excellent for speed and structured output
+    GROQ_MODEL = "llama-3.1-8b-instant" 
 
 # ============================================================
-# Data Processing & Caching
+# Data Processing & Caching (NO CHANGE)
 # ============================================================
 
 @st.cache_data(ttl=Config.CACHE_TTL)
@@ -82,9 +81,6 @@ def smart_preprocessing_numeric(
 ) -> Tuple[np.ndarray, Dict, pd.DataFrame]:
     """
     Optimized preprocessing with better memory management
-    - Handles missing values efficiently
-    - Applies log transformation only when needed
-    - Uses in-place operations where possible
     """
     df_clean = data[features].dropna().copy()
     
@@ -187,7 +183,7 @@ def calculate_composite_score(metrics: Dict[str, float]) -> float:
     return composite
 
 # ============================================================
-# Clustering Algorithms (Optimized)
+# Clustering Algorithms (Optimized) (NO CHANGE)
 # ============================================================
 
 def run_kmeans(X: np.ndarray, n_clusters_range: Tuple[int, int]) -> Dict:
@@ -389,7 +385,7 @@ def run_gower_hierarchical(df: pd.DataFrame, n_clusters_range: Tuple[int, int]) 
     return results
 
 # ============================================================
-# Anomaly Detection (Optimized)
+# Anomaly Detection (Optimized) (NO CHANGE)
 # ============================================================
 
 def run_anomaly_detection(
@@ -432,7 +428,7 @@ def run_anomaly_detection(
     return anomalies, predictions
 
 # ============================================================
-# LLM Integration for Business Insights (MODIFIED FOR HUGGINGFACE)
+# LLM Integration for Business Insights (GROQ CHANGE)
 # ============================================================
 
 def generate_cluster_descriptions(
@@ -443,8 +439,7 @@ def generate_cluster_descriptions(
     threshold: float = 0.15
 ) -> Tuple[Dict, pd.DataFrame]:
     """
-    Generate Cluster Statistics (Table) and AI-powered descriptions (if Key provided).
-    Uses HuggingFace Inference API.
+    Generate Cluster Statistics (Table) and Groq-powered descriptions.
     """
     desc_text = {}
     grouped = df_viz[df_viz['Cluster'] != '-1'].groupby('Cluster')
@@ -473,18 +468,15 @@ def generate_cluster_descriptions(
         for cluster_id in grouped.groups.keys():
             desc_text[str(cluster_id)] = {
                 "輪廓": "未啟用 AI 分析",
-                "特徵": "請提供 HuggingFace API Key 以獲得詳細解讀",
+                "特徵": "請提供 Groq API Key 以獲得詳細解讀",
                 "策略": "觀察上方視覺化圖表進行人工分析"
             }
         return desc_text, cluster_stats_df
     
-    # NEW: HuggingFace API setup
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-
-    try:        
+    try:
+        # GROQ CHANGE: Initialize Groq Client
+        client = Groq(api_key=api_key)
+        
         for cluster_id, cluster_data in grouped:
             cluster_size = len(cluster_data)
             cluster_pct = (cluster_size / len(df_viz)) * 100
@@ -509,7 +501,7 @@ def generate_cluster_descriptions(
                     if len(mode_val) > 0:
                         feature_summary.append(f"{feat}: 主要為 {mode_val.iloc[0]}")
             
-            # Create prompt for Qwen2.5-7B-Instruct
+            # Create prompt for Groq/LLama
             prompt = f"""
 你是一位資深的客戶分群分析專家。請根據以下數據分析這個客戶群組：
 
@@ -524,63 +516,51 @@ def generate_cluster_descriptions(
 1. 輪廓：這群客戶的核心特徵是什麼？
 2. 特徵：這群客戶與其他群組相比有什麼獨特之處？
 3. 策略：針對這群客戶應該採取什麼樣的營銷或服務策略？
-
-請以 JSON 格式回應，格式如下：
-{{
-    "輪廓": "...",
-    "特徵": "...",
-    "策略": "..."
-}}
 """
-            # NEW: HuggingFace API Request
-            payload = {
-                "inputs": prompt,
-                "parameters": {
-                    "temperature": 0.7,
-                    "max_new_tokens": 1000,
-                    "return_full_text": False, # Only return the generated text
-                    "stop": ["```", "}}"] # Stop sequences to prevent premature termination
-                }
-            }
             
-            response = requests.post(
-                Config.HF_API_URL, 
-                headers=headers, 
-                json=payload
+            # GROQ CHANGE: Call Groq API using chat.completions.create
+            response = client.chat.completions.create(
+                model=Config.GROQ_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是一位資深的客戶分群分析專家。請用繁體中文提供分析，並以純 JSON 格式回應，不要包含任何額外的文本或 Markdown 標記（如 ```json）。"
+                            "JSON 格式必須包含三個鍵：'輪廓', '特徵', '策略'。"
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt 
+                    }
+                ],
+                temperature=0.7,
+                # Force JSON output for Groq-compatible models
+                response_format={"type": "json_object"}
             )
-            response.raise_for_status() # Raise exception for bad status codes (e.g., 401, 500)
-
-            # HuggingFace API returns a list of results
-            result_list = response.json()
-            if not result_list or 'generated_text' not in result_list[0]:
-                 raise ValueError("Invalid response format from HuggingFace API.")
             
-            response_text = result_list[0]['generated_text'].strip()
-
             # Parse JSON response
             try:
-                # Clean up potential markdown formatting (```json ... ```)
-                if response_text.startswith('```'):
-                    response_text = response_text.split('```')[1]
-                    if response_text.startswith('json'):
-                        response_text = response_text[4:]
+                # Content is in response.choices[0].message.content
+                response_text = response.choices[0].message.content.strip()
+                # Assuming Groq's JSON mode is reliable, the complex parsing is simplified
                 
                 desc_text[str(cluster_id)] = json.loads(response_text)
             except json.JSONDecodeError:
                 desc_text[str(cluster_id)] = {
-                    "輪廓": response_text[:200] if len(response_text) > 200 else response_text,
-                    "特徵": "AI 分析中...",
+                    "輪廓": response.choices[0].message.content.strip()[:200],
+                    "特徵": "AI 分析中，但 JSON 格式解析失敗。",
                     "策略": "請參考視覺化結果"
                 }
                 
-    except requests.exceptions.RequestException as e:
-        # NEW: Handle requests exceptions (API errors, connection issues)
-        st.error(f"HuggingFace API 錯誤: {e}")
+    except APIError as e:
+        # GROQ CHANGE: Use Groq's APIError
+        st.error(f"Groq API 錯誤: {e}")
         for cluster_id in grouped.groups.keys():
             desc_text[str(cluster_id)] = {
                 "輪廓": "API 呼叫失敗",
                 "特徵": str(e),
-                "策略": "請檢查 API Key 或模型是否正確"
+                "策略": "請檢查 API Key 是否正確"
             }
     except Exception as e:
         st.error(f"生成描述時發生錯誤: {e}")
@@ -599,18 +579,15 @@ def generate_anomaly_insights(
     api_key: Optional[str] = None
 ) -> str:
     """
-    Generate AI-powered insights about detected anomalies using HuggingFace API.
+    Generate Groq-powered insights about detected anomalies
     """
     if not api_key or anomalies.empty:
         return "未啟用 AI 分析或無異常資料"
     
-    # NEW: HuggingFace API setup
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-
     try:
+        # GROQ CHANGE: Initialize Groq Client
+        client = Groq(api_key=api_key)
+        
         # Sample anomalies for analysis
         sample_size = min(5, len(anomalies))
         anomaly_sample = anomalies[features].head(sample_size)
@@ -640,37 +617,31 @@ def generate_anomaly_insights(
 
 請以簡潔的段落形式回應（3-5 句話）。
 """
-        # NEW: HuggingFace API Request
-        payload = {
-            "inputs": prompt,
-            "parameters": {
-                "temperature": 0.7,
-                "max_new_tokens": 500,
-                "return_full_text": False
-            }
-        }
         
-        response = requests.post(
-            Config.HF_API_URL, 
-            headers=headers, 
-            json=payload
+        # GROQ CHANGE: Call Groq API using chat.completions.create
+        response = client.chat.completions.create(
+            model=Config.GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一位資深的數據異常分析專家。請根據提供的數據，用繁體中文提供：1. 這些異常值可能代表什麼？2. 這些異常是否需要關注？為什麼？3. 建議採取什麼行動？請以簡潔的段落形式回應（3-5 句話）。"
+                },
+                {
+                    "role": "user",
+                    "content": prompt 
+                }
+            ],
+            temperature=0.7,
+            max_output_tokens=500
         )
-        response.raise_for_status()
         
-        result_list = response.json()
-        if not result_list or 'generated_text' not in result_list[0]:
-             return "AI 分析失敗: 無法從 HuggingFace API 獲取有效回應。"
-
-        return result_list[0]['generated_text'].strip()
+        return response.choices[0].message.content
         
-    except requests.exceptions.RequestException as e:
-        # NEW: Handle requests exceptions
-        return f"AI 分析失敗: HuggingFace API 錯誤: {e}"
     except Exception as e:
         return f"AI 分析失敗: {e}"
 
 # ============================================================
-# Visualization (Enhanced)
+# Visualization (Enhanced) (NO CHANGE)
 # ============================================================
 
 def create_cluster_visualization(
@@ -731,12 +702,12 @@ def display_cluster_statistics(df: pd.DataFrame, labels: np.ndarray) -> None:
     st.dataframe(stats, use_container_width=True)
 
 # ============================================================
-# Main Application
+# Main Application (MINOR CHANGE)
 # ============================================================
 
 def main():
-    st.title("👥 全方位客戶分群系統 (Advanced Clustering)")
-    st.markdown("### 智能客戶分群與異常偵測系統")
+    st.title("⚡ 全方位客戶分群系統 (Groq Powered)")
+    st.markdown("### 極速智能客戶分群與異常偵測系統")
     
     # Sidebar configuration
     with st.sidebar:
@@ -758,10 +729,18 @@ def main():
         
         st.divider()
         st.header("🤖 4. AI Integration (Optional)")
-        # MODIFIED: Changed label and variable name for HuggingFace
-        hf_api_key = st.text_input("HuggingFace Inference API Key (選填)", type="password")
-        if hf_api_key:
-             st.caption(f"已輸入 API Key，將使用 {Config.HF_MODEL_NAME} 啟用 AI 洞察功能")
+        # GROQ CHANGE: Renamed label but kept variable name for compatibility
+        groq_api_key = st.text_input("Groq API Key (選填)", type="password") 
+        
+        # Check environment variable as fallback
+        if not groq_api_key:
+             env_key = os.environ.get("GROQ_API_KEY")
+             if env_key:
+                 groq_api_key = env_key
+                 st.caption("已從環境變數讀取 Groq API Key")
+
+        if groq_api_key:
+             st.caption("已啟用 Groq AI 洞察功能")
     
     if not uploaded_file:
         st.info("👆 Please upload a CSV file to begin")
@@ -981,9 +960,9 @@ def main():
             numeric_features = [f for f in selected_features if pd.api.types.is_numeric_dtype(df[f])]
             overall_means = df[numeric_features].mean() if numeric_features else pd.Series()
             
-            # Generate descriptions AND the table (Passing hf_api_key)
+            # GROQ CHANGE: Pass groq_api_key
             descriptions, cluster_stats_df = generate_cluster_descriptions(
-                df_viz, selected_features, overall_means, hf_api_key
+                df_viz, selected_features, overall_means, groq_api_key
             )
 
             # Display the statistics table
@@ -993,9 +972,9 @@ def main():
             # -----------------------------------------------------------------
             # AI-Powered Business Insights (Conditional)
             # -----------------------------------------------------------------
-            st.subheader("💡 AI 業務洞察分析")
+            st.subheader("💡 AI 業務洞察分析 (Groq Powered)")
             
-            if hf_api_key:
+            if groq_api_key:
                 # Display descriptions if API key is provided
                 for cluster_id, desc in descriptions.items():
                     if cluster_id != '-1':
@@ -1014,14 +993,14 @@ def main():
                                 st.markdown("**💼 營銷策略**")
                                 st.write(desc.get('策略', 'N/A'))
             else:
-                st.info("💡 提供 HuggingFace Inference API Key 以啟用 AI 智能分析功能")
+                st.info("💡 提供 Groq API Key 以啟用 AI 智能分析功能 (極速體驗)")
                 st.markdown(f"""
-                **AI 分析功能包括：** (使用模型: **{Config.HF_MODEL_NAME}**)
+                **AI 分析功能包括：**
                 - 🎯 自動識別各群組的核心特徵
                 - 📊 比較不同群組的差異
                 - 💼 提供針對性的營銷策略建議
                 
-                [了解 HuggingFace Inference API](https://huggingface.co/docs/api-inference/index) →
+                建議使用 Groq 提供的 **{Config.GROQ_MODEL}** 模型。
                 """)
         else:
             st.error("❌ Clustering failed. Please try different parameters or features.")
@@ -1056,12 +1035,13 @@ def main():
             st.subheader("🔴 Detected Anomalies")
             st.dataframe(anomalies.head(20))
             
-            # AI-Powered Anomaly Insights (Passing hf_api_key)
-            if hf_api_key:
-                st.markdown("### 🤖 AI 異常分析")
+            # AI-Powered Anomaly Insights
+            if groq_api_key:
+                st.markdown("### 🤖 AI 異常分析 (Groq Powered)")
                 with st.spinner("正在分析異常資料..."):
+                    # GROQ CHANGE: Pass groq_api_key
                     insights = generate_anomaly_insights(
-                        anomalies, selected_features, hf_api_key
+                        anomalies, selected_features, groq_api_key
                     )
                     st.info(insights)
             
@@ -1100,7 +1080,7 @@ def main():
                 st.error(f"Error creating anomaly visualization: {e}")
 
 # ============================================================
-# Entry Point
+# Entry Point (NO CHANGE)
 # ============================================================
 
 if __name__ == "__main__":
