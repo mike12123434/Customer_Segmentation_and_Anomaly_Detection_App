@@ -45,8 +45,9 @@ class Config:
     DEFAULT_RANDOM_STATE = 42
     
     # HuggingFace Configuration (NEW)
-    HF_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct" 
+    HF_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4"
     HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL_NAME}"
+
 
 
 # ============================================================
